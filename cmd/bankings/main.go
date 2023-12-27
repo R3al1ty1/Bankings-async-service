@@ -1,131 +1,98 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"github.com/gin-gonic/gin"
 	"math/rand"
 	"net/http"
-	"sync"
+	"strconv"
 	"time"
 )
 
-type BankAccount struct {
-	ID            string    `json:"id"`
-	AccountNumber string    `json:"account_number,omitempty"`
-	Status        string    `json:"status"`
-	Deadline      time.Time `json:"deadline"`
-}
+const secretKey = "secret-async-key"
 
-var (
-	accountsMutex sync.Mutex
-	accounts      = make(map[string]*BankAccount)
-	secretCode    = "async-service-secret-code"
-)
+type AccountApplication struct {
+	AccountID     int64  `json:"account_id"`
+	ApplicationID int64  `json:"application_id"`
+	Number        int64  `json:"number"`
+	Currency      string `json:"currency"`
+}
 
 func main() {
-	http.HandleFunc("/generate-account", handleGenerateAccount)
-	http.HandleFunc("/update-results", handleUpdateResults)
+	r := gin.Default()
 
-	log.Println("Server started on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	r.POST("/set_status", func(c *gin.Context) {
+		var account AccountApplication
+
+		if err := c.ShouldBindJSON(&account); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		apiKey := c.GetHeader("Authorization")
+		if apiKey != secretKey {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid secret key"})
+			return
+		}
+
+		go func() {
+			time.Sleep(5 * time.Second)
+			SendStatus(account)
+		}()
+
+		c.JSON(http.StatusOK, gin.H{"message": "Status update initiated"})
+	})
+
+	r.Run(":8080")
 }
 
-func handleGenerateAccount(w http.ResponseWriter, r *http.Request) {
-	if !authorize(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+func SendStatus(accApp AccountApplication) bool {
+	accApp.Number = generateAccountNumber(accApp.Currency)
 
-	var currency struct {
-		CurrencyCode string `json:"currency_code"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&currency)
+	url := "http://localhost:8000/api/apps_accs/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
+	response, err := performPUTRequest(url, accApp)
 	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
+		fmt.Println("Error sending status:", err)
+		return false
 	}
 
-	id := generateID()
-
-	account := &BankAccount{
-		ID:       id,
-		Status:   "processing",
-		Deadline: time.Now().Add(10 * time.Second),
-	}
-
-	account.AccountNumber = generateAccountNumber(currency.CurrencyCode)
-
-	accountsMutex.Lock()
-	accounts[id] = account
-	accountsMutex.Unlock()
-
-	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte(account.AccountNumber))
-
-	go asyncProcessor(account, currency.CurrencyCode)
-}
-
-func asyncProcessor(account *BankAccount, currencyCode string) {
-	time.Sleep(2 * time.Second)
-
-	account.Status = "completed"
-
-	account.AccountNumber = generateAccountNumber(currencyCode)
-
-	fmt.Printf("Bank Account ID: %s, Account Number: %s\n", account.ID, account.AccountNumber)
-
-	accountsMutex.Lock()
-	delete(accounts, account.ID)
-	accountsMutex.Unlock()
-}
-
-func handleUpdateResults(w http.ResponseWriter, r *http.Request) {
-	if !authorize(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var updateData struct {
-		ID     string `json:"id"`
-		Result string `json:"result"`
-	}
-	err := json.NewDecoder(r.Body).Decode(&updateData)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	accountsMutex.Lock()
-	if account, ok := accounts[updateData.ID]; ok && account.Status == "completed" {
-		account.Status = updateData.Result
-		fmt.Printf("Result updated for Bank Account ID: %s, Status: %s\n", updateData.ID, updateData.Result)
+	if response.StatusCode == http.StatusOK {
+		fmt.Println("Status sent successfully for pk:", accApp.ApplicationID)
+		return true
 	} else {
-		fmt.Printf("Bank Account ID not found or account not completed: %s\n", updateData.ID)
+		fmt.Println("Failed to process PUT request")
+		return false
 	}
-	accountsMutex.Unlock()
-
-	w.WriteHeader(http.StatusOK)
 }
 
-func authorize(r *http.Request) bool {
-	return r.Header.Get("Authorization") == secretCode
-}
+func generateAccountNumber(currencyCode string) int64 {
+	if currencyCode == "" {
+		fmt.Println("Currency code is empty")
+		return 0
+	}
 
-func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
-}
-
-func generateAccountNumber(currencyCode string) string {
 	prefix := "40817"
-	branchCode := "2003"
+	branchCode := "001"
 
-	controlDigit := generateControlDigit(prefix + currencyCode + branchCode)
+	currencyInt, err := strconv.Atoi(currencyCode)
+	if err != nil {
+		fmt.Println("Error converting currency code to integer:", err)
+		return 0
+	}
+
+	controlDigit := generateControlDigit(prefix + strconv.Itoa(currencyInt) + branchCode)
 
 	accountNumber := generateUniqueAccountNumber()
 
-	return prefix + currencyCode + controlDigit + branchCode + accountNumber
+	result, err := strconv.ParseInt(prefix+strconv.Itoa(currencyInt)+controlDigit+branchCode+accountNumber, 10, 64)
+	if err != nil {
+		fmt.Println("Error converting account number to int64:", err)
+		return 0
+	}
+
+	return result
 }
 
 func generateControlDigit(input string) string {
@@ -143,5 +110,29 @@ func generateControlDigit(input string) string {
 }
 
 func generateUniqueAccountNumber() string {
-	return fmt.Sprintf("%07d", rand.Intn(10000000))
+	return fmt.Sprintf("%07d", rand.Intn(1000000))
+}
+
+func performPUTRequest(url string, data AccountApplication) (*http.Response, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	return resp, nil
 }
