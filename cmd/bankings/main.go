@@ -23,7 +23,7 @@ type AccountApplication struct {
 func main() {
 	r := gin.Default()
 
-	r.POST("/set_status", func(c *gin.Context) {
+	r.POST("/get_number", func(c *gin.Context) {
 		var account AccountApplication
 
 		if err := c.ShouldBindJSON(&account); err != nil {
@@ -49,8 +49,9 @@ func main() {
 }
 
 func SendStatus(accApp AccountApplication) bool {
+	fmt.Println(accApp.Number)
 	accApp.Number = generateAccountNumber(accApp.Currency)
-
+	fmt.Println(accApp.Number)
 	url := "http://localhost:8000/api/apps_accs/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
 	response, err := performPUTRequest(url, accApp)
 	if err != nil {
