@@ -18,6 +18,7 @@ type AccountApplication struct {
 	ApplicationID int64  `json:"application_id"`
 	Number        int64  `json:"number"`
 	Currency      string `json:"currency"`
+	SecretKey     string `json:"secret_key"`
 }
 
 func main() {
@@ -28,12 +29,6 @@ func main() {
 
 		if err := c.ShouldBindJSON(&account); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		apiKey := c.GetHeader("Authorization")
-		if apiKey != secretKey {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid secret key"})
 			return
 		}
 
