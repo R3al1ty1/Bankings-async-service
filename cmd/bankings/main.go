@@ -49,10 +49,8 @@ func main() {
 }
 
 func SendStatus(accApp AccountApplication) bool {
-	fmt.Println(accApp.Number)
 	accApp.Number = generateAccountNumber(accApp.Currency)
-	fmt.Println(accApp.Number)
-	url := "http://localhost:8000/api/apps_accs/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
+	url := "http://localhost:8000/api/number/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
 	response, err := performPUTRequest(url, accApp)
 	if err != nil {
 		fmt.Println("Error sending status:", err)
