@@ -18,6 +18,7 @@ type AccountApplication struct {
 	ApplicationID int64  `json:"application_id"`
 	Number        int64  `json:"number"`
 	Currency      string `json:"currency"`
+	SecretKey     string `json:"secret_key"`
 }
 
 func main() {
@@ -50,6 +51,8 @@ func main() {
 
 func SendStatus(accApp AccountApplication) bool {
 	accApp.Number = generateAccountNumber(accApp.Currency)
+	accApp.SecretKey = secretKey
+
 	url := "http://localhost:8000/api/number/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
 	response, err := performPUTRequest(url, accApp)
 	if err != nil {
@@ -124,6 +127,7 @@ func performPUTRequest(url string, data AccountApplication) (*http.Response, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", secretKey)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
