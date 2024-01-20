@@ -32,6 +32,12 @@ func main() {
 			return
 		}
 
+		apiKey := c.GetHeader("Authorization")
+		if apiKey != secretKey {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid secret key"})
+			return
+		}
+
 		go func() {
 			time.Sleep(5 * time.Second)
 			SendStatus(account)
@@ -45,6 +51,8 @@ func main() {
 
 func SendStatus(accApp AccountApplication) bool {
 	accApp.Number = generateAccountNumber(accApp.Currency)
+	accApp.SecretKey = secretKey
+
 	url := "http://localhost:8000/api/number/" + fmt.Sprint(accApp.AccountID) + "/" + fmt.Sprint(accApp.ApplicationID) + "/put/"
 	response, err := performPUTRequest(url, accApp)
 	if err != nil {
@@ -119,6 +127,7 @@ func performPUTRequest(url string, data AccountApplication) (*http.Response, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", secretKey)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
